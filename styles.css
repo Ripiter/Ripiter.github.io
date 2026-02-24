@@ -120,7 +120,7 @@ button:disabled{ opacity:.55; cursor:not-allowed; }
 .eventTop{
   display:flex;
   justify-content:space-between;
-  gap:10px;
+  gap:5px;
   align-items:flex-start;
 }
 .eventTitle{
@@ -134,6 +134,8 @@ button:disabled{ opacity:.55; cursor:not-allowed; }
   margin-top:4px;
   line-height:1.35;
   white-space:pre-wrap;
+  overflow-wrap: anywhere;   
+  word-break: break-word;
 }
 
 .splitBox{
@@ -167,3 +169,38 @@ button:disabled{ opacity:.55; cursor:not-allowed; }
 .space-between{ justify-content:space-between; }
 .align-end{ align-items:flex-end; }
 .section{ margin-top:10px; }
+
+.weekPickerRow{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.weekPickerRow button{
+  padding:10px 12px;
+  border-radius:10px;
+}
+.weekPickerRow input{
+  flex:1;
+  min-width: 170px;
+}
+
+.footerRow{
+  margin-top: 10px;
+  display:flex;
+  gap:12px;
+  align-items:flex-end;
+  justify-content:space-between;
+}
+#versionBadge{
+  text-align:right;
+  white-space:nowrap;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(0,0,0,.12);
+}
+
+.importExportInput{
+  height: 35px;
+  min-height: auto;
+}

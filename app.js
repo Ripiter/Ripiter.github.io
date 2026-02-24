@@ -3,6 +3,18 @@
   const pad2 = (n) => String(n).padStart(2, "0");
   const toISODate = (d) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
 
+  const CURRENT_VERSION = 1;
+  
+
+function safeB64DecodeUTF8(b64) {
+    const cleaned = (b64 || "").trim().replace(/\s+/g, "");
+    const binary = atob(cleaned);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) 
+      bytes[i] = binary.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+}
+
   const parseISODate = (s) => {
     if (!s) return null;
     const [y,m,d] = s.split("-").map(Number);
@@ -93,18 +105,59 @@
     return " ".repeat(left) + t + " ".repeat(right);
   }
 
+  // Wrap text into lines of maxLen.
+  // Prefers breaking on spaces; falls back to hard breaks for long words.
+  function wrapText(text, maxLen) {
+    const t = (text ?? "").toString().trim();
+    if (!t) return [];
+    const words = t.split(/\s+/);
+    const lines = [];
+    let cur = "";
+
+    for (const w of words) {
+      if (!cur) {
+        if (w.length <= maxLen) {
+          cur = w;
+        } else {
+          // hard break word
+          for (let i = 0; i < w.length; i += maxLen) {
+            lines.push(w.slice(i, i + maxLen));
+          }
+          cur = "";
+        }
+      } else {
+        if ((cur.length + 1 + w.length) <= maxLen) {
+          cur += " " + w;
+        } else {
+          lines.push(cur);
+          cur = "";
+          if (w.length <= maxLen) cur = w;
+          else {
+            for (let i = 0; i < w.length; i += maxLen) {
+              lines.push(w.slice(i, i + maxLen));
+            }
+            cur = "";
+          }
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
   // ---- state ----
   let events = [];
   let activeDayIndex = 0;
 
   // ---- elements ----
   const weekPicker = document.getElementById("weekPicker");
+  const prevWeekBtn = document.getElementById("prevWeekBtn");
+  const nextWeekBtn = document.getElementById("nextWeekBtn");
   const weekRangeText = document.getElementById("weekRangeText");
   const weekDaysEl = document.getElementById("weekDays");
 
   const selectedDate = document.getElementById("selectedDate");
   const startTime = document.getElementById("startTime");
-  const endDate = document.getElementById("endDate");
   const endTime = document.getElementById("endTime");
   const nameEl = document.getElementById("name");
   const descEl = document.getElementById("desc");
@@ -123,6 +176,13 @@
 
   const copyBase64Btn = document.getElementById("copyBase64Btn");
   const copyAsciiBtn = document.getElementById("copyAsciiBtn");
+
+  const importIn = document.getElementById("importIn");
+  const importBtn = document.getElementById("importBtn");
+  const importStatus = document.getElementById("importStatus");
+  const versionBadge = document.getElementById("versionBadge");
+
+  if (versionBadge) versionBadge.textContent = "v" + CURRENT_VERSION;
 
   // Polish 2-letter
   const dayNames = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"];
@@ -151,8 +211,6 @@
 
     selectedDate.min = toISODate(ws);
     selectedDate.max = toISODate(we);
-    endDate.min = toISODate(ws);
-    endDate.max = toISODate(we);
 
     const d0 = new Date(ws); d0.setDate(ws.getDate() + activeDayIndex);
     selectedDate.value = toISODate(d0);
@@ -162,6 +220,23 @@
 
   function getCurrentWeekStart() {
     return getISOWeekStartFromWeekInput(weekPicker.value);
+  }
+
+  function shiftWeek(deltaWeeks) {
+    const ws = getCurrentWeekStart();
+    if (!ws) return;
+    const d = new Date(ws);
+    d.setDate(d.getDate() + deltaWeeks * 7);
+    weekPicker.value = getISOWeekInputValueFromDate(d);
+    activeDayIndex = 0;
+    setWeek(weekPicker.value);
+
+    // clear outputs (week-dependent)
+    base64Out.value = "";
+    asciiOut.value = "";
+    splitBox.style.display = "none";
+    splitBox.innerHTML = "";
+    asciiLenInfo.textContent = "";
   }
 
   // ---- events UI ----
@@ -190,13 +265,9 @@
 
       const timeStr = (() => {
         const s = ev.startTime || "";
-        const hasEnd = (ev.endDate && ev.endTime) || ev.endTime || ev.endDate;
-        if (!hasEnd) return s ? s : "(no time)";
-        const ed = ev.endDate || ev.date;
-        const et = ev.endTime || "";
-        const sameDay = ed === ev.date;
-        if (sameDay) return `${s || "(no start)"}–${et || "(no end)"}`;
-        return `${ev.date} ${s || ""} → ${ed} ${et || ""}`.trim();
+        const et = (ev.endTime || "").trim();
+        if (!et) return s ? s : "(no time)";
+        return `${s || "(no start)"}–${et || "(no end)"}`;
       })();
 
       const metaLines = [];
@@ -235,42 +306,109 @@
       return;
     }
 
-    const st = (startTime.value || "").trim();
+    const st = (startTime.value || "").trim() || "00:00";
+    const et = (endTime.value || "").trim(); // optional
+
     const nm = (nameEl.value || "").trim();
     const ds = (descEl.value || "").trim();
 
     if (!nm) { alert("Name is required."); return; }
-    if (!st) { alert("Start time is required."); return; }
-
-    let ed = (endDate.value || "").trim();
-    let et = (endTime.value || "").trim();
-    if (!ed && et) ed = dateStr;
-
-    if (ed) {
-      const edd = parseISODate(ed);
-      if (!edd || !isWithinWeek(edd, ws)) {
-        alert("End date must be within the chosen week (Mon–Sun).");
-        return;
-      }
-    }
 
     events.push({
       id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(),
       date: dateStr,
       startTime: st,
-      endDate: ed || "",
       endTime: et || "",
       name: nm,
       desc: ds
     });
 
-    startTime.value = "";
-    endDate.value = "";
+    // reset inputs (keep date/week). Start time back to 00:00.
+    startTime.value = "00:00";
     endTime.value = "";
     nameEl.value = "";
     descEl.value = "";
 
     renderEventsList();
+  }
+
+  function isoWeekValueFromWeekStartISO(weekStartISO) {
+  const ws = parseISODate(weekStartISO);
+  if (!ws) return null;
+  return getISOWeekInputValueFromDate(ws);
+}
+
+function normalizeImportedEvent(ev) {
+  // Accepts minimal shape and maps to internal model
+  const date = (ev?.date || "").trim();
+  const startTime = (ev?.startTime || "").trim() || "00:00";
+  const endTime = (ev?.endTime || "").trim();
+  const name = (ev?.name || "").toString().trim();
+  const desc = (ev?.description || "").toString().trim();
+
+  if (!date || !parseISODate(date)) throw new Error("Invalid event date: " + date);
+  if (!name) throw new Error("Event name is required.");
+  // time validation is intentionally loose; browser allows HH:MM. We keep whatever is provided.
+  return {
+    id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
+    date,
+    startTime,
+    endTime,
+    name,
+    desc
+  };
+}
+
+function importBase64Replace() {
+    try {
+      importStatus.textContent = "";
+      const b64 = (importIn.value || "").trim();
+      if (!b64) throw new Error("Paste a base64 value first.");
+
+      const jsonText = safeB64DecodeUTF8(b64);
+      let obj;
+      try {
+        obj = JSON.parse(jsonText);
+      } catch {
+        throw new Error("Decoded data is not valid JSON.");
+      }
+
+      const version = Number(obj?.version);
+      if (!Number.isFinite(version)) throw new Error("Missing/invalid version in JSON.");
+      if (version !== 1) throw new Error("Unsupported version: " + version);
+
+      const weekStart = (obj?.weekStart || "").trim();
+      if (!weekStart || !parseISODate(weekStart)) throw new Error("Missing/invalid weekStart (YYYY-MM-DD).");
+
+      const importedEvents = Array.isArray(obj?.events) ? obj.events : null;
+      if (!importedEvents) throw new Error("Missing/invalid events array.");
+
+      // Replace events completely (as requested)
+      const newEvents = importedEvents.map(normalizeImportedEvent);
+
+      // Switch week picker to the imported weekStart’s ISO week
+      const weekVal = isoWeekValueFromWeekStartISO(weekStart);
+      if (!weekVal) throw new Error("Could not derive ISO week from weekStart.");
+
+      weekPicker.value = weekVal;
+      activeDayIndex = 0;
+      setWeek(weekPicker.value);
+
+      events = newEvents;
+      renderEventsList();
+
+      // Clear outputs (since week/events changed)
+      base64Out.value = "";
+      asciiOut.value = "";
+      splitBox.style.display = "none";
+      splitBox.innerHTML = "";
+      asciiLenInfo.textContent = "";
+
+      importStatus.textContent = `Imported ${newEvents.length} event(s).`;
+    } catch (e) {
+      importStatus.textContent = (e && e.message) ? e.message : "Import failed.";
+      console.log(e);
+    }
   }
 
   // ---- outputs ----
@@ -287,12 +425,11 @@
       .sort(compareEvents);
 
     return {
-      version: 1,
+      version: CURRENT_VERSION,
       weekStart: weekStartISO,
       events: filtered.map(ev => ({
         date: ev.date,
         startTime: ev.startTime,
-        endDate: ev.endDate || "",
         endTime: ev.endTime || "",
         name: ev.name,
         description: ev.desc || ""
@@ -308,24 +445,9 @@
 
   function formatTimeRange(ev){
     const st = (ev.startTime || "").trim();
-    const hasAnyEnd = (ev.endDate && ev.endTime) || ev.endTime || ev.endDate;
-    if (!hasAnyEnd) return st;
-
-    const ed = (ev.endDate || ev.date || "").trim();
     const et = (ev.endTime || "").trim();
-
-    if (ed === ev.date) {
-      if (st && et) return `${st}-${et}`;
-      if (st && !et) return `${st}-?`;
-      if (!st && et) return `?-` + et;
-      return "";
-    }
-
-    const sd = parseISODate(ev.date);
-    const edd = parseISODate(ed);
-    const sds = sd ? fmtDDMM(sd) : ev.date;
-    const eds = edd ? fmtDDMM(edd) : ed;
-    return `${sds}${st ? " "+st : ""}→${eds}${et ? " "+et : ""}`.trim();
+    if (!et) return st;
+    return `${st}-${et}`;
   }
 
   function generateASCII() {
@@ -333,6 +455,8 @@
     const we = new Date(ws); we.setDate(ws.getDate() + 6);
 
     const obj = buildExportObject();
+
+    // group per day
     const byDay = Array.from({length:7}, () => []);
     for (const ev of obj.events) {
       const d = parseISODate(ev.date);
@@ -340,21 +464,40 @@
       byDay[idx].push(ev);
     }
     for (let i=0;i<7;i++){
-      byDay[i].sort((a,b) => (a.startTime||"").localeCompare(b.startTime||"") || (a.name||"").localeCompare(b.name||""));
+      byDay[i].sort((a,b) =>
+        (a.startTime||"").localeCompare(b.startTime||"") ||
+        (a.name||"").localeCompare(b.name||"")
+      );
     }
 
-    const maxEvents = Math.max(0, ...byDay.map(a => a.length));
-    const rowBlocks = maxEvents * 3;
-
-    const header = `${fmtDDMM(ws)} - ${fmtDDMM(we)}`;
-
-    const colW = 11;
+    // column widths
+    const colW = 13; // slightly wider to reduce wrapping
     const cellPad = (s) => {
       const t = (s ?? "").toString();
       if (t.length > colW) return t.slice(0, colW);
       return t + " ".repeat(colW - t.length);
     };
 
+    // Pre-wrap each event into multiple lines: time line, name lines, desc lines, blank spacer
+    // This is what fixes truncation and adds description to ASCII.
+    const wrappedByDay = byDay.map(dayEvents => {
+      return dayEvents.map(ev => {
+        const timeLine = formatTimeRange(ev);
+        const nameLines = wrapText(ev.name || "", colW);
+        const descLines = wrapText(ev.description || "", colW);
+        const lines = [timeLine, ...nameLines, ...descLines, ""]; // blank spacer after each event
+        return lines;
+      });
+    });
+
+    // compute how many rows each day needs (sum of lines in events)
+    const dayHeights = wrappedByDay.map(dayEvents => dayEvents.reduce((sum, eLines) => sum + eLines.length, 0));
+    const totalRows = Math.max(0, ...dayHeights);
+
+    // Flatten per-day line streams for easy row-by-row consumption
+    const dayStreams = wrappedByDay.map(dayEvents => dayEvents.flat());
+
+    const header = `${fmtDDMM(ws)} - ${fmtDDMM(we)}`;
     const topRule = " " + "_".repeat((colW+3)*7 + 1);
 
     const dayHeader = [
@@ -368,19 +511,11 @@
     ].join("");
 
     const rows = [];
-    for (let r = 0; r < rowBlocks; r++) {
-      const eventIndex = Math.floor(r / 3);
-      const subRow = r % 3;
+    for (let r = 0; r < totalRows; r++) {
       const cells = [];
       for (let d = 0; d < 7; d++) {
-        const ev = byDay[d][eventIndex];
-        let text = "";
-        if (ev) {
-          if (subRow === 0) text = formatTimeRange(ev);
-          else if (subRow === 1) text = ev.name || "";
-          else text = "";
-        }
-        cells.push(" " + cellPad(text) + " " + "|");
+        const line = dayStreams[d][r] ?? "";
+        cells.push(" " + cellPad(line) + " " + "|");
       }
       rows.push("|" + cells.join(""));
     }
@@ -473,6 +608,7 @@ ${bottom}`;
 
   // ---- wiring ----
   addBtn.addEventListener("click", addEvent);
+  importBtn.addEventListener("click", importBase64Replace);
 
   clearBtn.addEventListener("click", () => {
     if (!confirm("Clear all events for all weeks in memory?")) return;
@@ -512,19 +648,6 @@ ${bottom}`;
     [...weekDaysEl.children].forEach((c, i) => c.classList.toggle("active", i === activeDayIndex));
   });
 
-  endDate.addEventListener("change", () => {
-    const ws = getCurrentWeekStart();
-    if (!ws) return;
-    const d = parseISODate(endDate.value);
-    if (!d) return;
-
-    if (!isWithinWeek(d, ws)) {
-      const we = new Date(ws); we.setDate(ws.getDate()+6);
-      const clamped = d < ws ? ws : we;
-      endDate.value = toISODate(clamped);
-    }
-  });
-
   weekPicker.addEventListener("change", () => {
     activeDayIndex = 0;
     setWeek(weekPicker.value);
@@ -535,10 +658,17 @@ ${bottom}`;
     asciiLenInfo.textContent = "";
   });
 
+  prevWeekBtn.addEventListener("click", () => shiftWeek(-1));
+  nextWeekBtn.addEventListener("click", () => shiftWeek(+1));
+
   // ---- init ----
   const today = new Date();
   weekPicker.value = getISOWeekInputValueFromDate(today);
   activeDayIndex = 0;
   setWeek(weekPicker.value);
 
+  // ensure default start time is 00:00
+  startTime.value = "00:00";
+
+  
 })();
