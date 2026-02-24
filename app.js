@@ -40,7 +40,7 @@ function loadWebhookIntoUI() {
 
   function saveWebhookFromUI() {
     const url = (webhookInput.value || "").trim();
-    const rk = (relayKeyInput.value || "").trim();
+    const rk = (workerInput.value || "").trim();
 
     if (!url) { setWebhookStatus("Nothing to save (missing webhook)."); return; }
     if (!isLikelyDiscordWebhook(url)) { setWebhookStatus("That does not look like a Discord webhook URL."); return; }
@@ -56,7 +56,7 @@ function clearWebhook() {
     localStorage.removeItem(WEBHOOK_LS_KEY);
     localStorage.removeItem(WORKERURL_LS_KEY);
     webhookInput.value = "";
-    relayKeyInput.value = "";
+    workerInput.value = "";
     setWebhookStatus("Webhook + relay key cleared.");
   }
 
