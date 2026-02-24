@@ -54,12 +54,11 @@ h2{ font-size:14px; margin:0 0 10px; font-weight:700; color:var(--text); }
 }
 
 .webhookBox input{
-  width: 320px;
-  max-width: 45vw;
+  width: 240px;
+  max-width: 30vw;
 }
 
 @media (max-width: 900px){
-  .topbar{ flex-direction:column; }
   .webhookBox input{ width:100%; max-width:none; }
 }
 

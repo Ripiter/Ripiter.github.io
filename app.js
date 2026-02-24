@@ -4,11 +4,16 @@
   const toISODate = (d) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
 
   const CURRENT_VERSION = 1;
-
   const WEBHOOK_LS_KEY = "discordWebhookUrl";
+  const RELAYKEY_LS_KEY = "discordRelayKey";  
+  const WORKER_RELAY_URL = "https://blue-hat-cb30.ripiter15.workers.dev";
 
   function setWebhookStatus(msg) {
     if (webhookStatus) webhookStatus.textContent = msg || "";
+  }
+
+  function getStoredRelayKey() {
+    return (localStorage.getItem(RELAYKEY_LS_KEY) || "").trim();
   }
 
   function getStoredWebhook() {
@@ -21,35 +26,38 @@
     return /^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+/i.test(url);
   }
 
-  function loadWebhookIntoUI() {
-    const stored = getStoredWebhook();
-    if (stored) {
-      webhookInput.value = stored;
-      setWebhookStatus("Webhook loaded from local storage.");
-    } else {
-      webhookInput.value = "";
-      setWebhookStatus("No webhook saved.");
-    }
+function loadWebhookIntoUI() {
+    const storedWebhook = getStoredWebhook();
+    const storedRelayKey = getStoredRelayKey();
+
+    webhookInput.value = storedWebhook || "";
+    relayKeyInput.value = storedRelayKey || "";
+
+    if (storedWebhook && storedRelayKey) setWebhookStatus("Webhook + relay key loaded from local storage.");
+    else if (storedWebhook) setWebhookStatus("Webhook loaded. Missing relay key.");
+    else setWebhookStatus("No webhook saved.");
   }
 
   function saveWebhookFromUI() {
     const url = (webhookInput.value || "").trim();
-    if (!url) {
-      setWebhookStatus("Nothing to save.");
-      return;
-    }
-    if (!isLikelyDiscordWebhook(url)) {
-      setWebhookStatus("That does not look like a Discord webhook URL.");
-      return;
-    }
+    const rk = (relayKeyInput.value || "").trim();
+
+    if (!url) { setWebhookStatus("Nothing to save (missing webhook)."); return; }
+    if (!isLikelyDiscordWebhook(url)) { setWebhookStatus("That does not look like a Discord webhook URL."); return; }
+    if (!rk) { setWebhookStatus("Relay key is required."); return; }
+
     localStorage.setItem(WEBHOOK_LS_KEY, url);
-    setWebhookStatus("Webhook saved locally.");
+    localStorage.setItem(RELAYKEY_LS_KEY, rk);
+    setWebhookStatus("Webhook + relay key saved locally.");
   }
 
-  function clearWebhook() {
+
+function clearWebhook() {
     localStorage.removeItem(WEBHOOK_LS_KEY);
+    localStorage.removeItem(RELAYKEY_LS_KEY);
     webhookInput.value = "";
-    setWebhookStatus("Webhook cleared.");
+    relayKeyInput.value = "";
+    setWebhookStatus("Webhook + relay key cleared.");
   }
 
 function safeB64DecodeUTF8(b64) {
@@ -234,6 +242,8 @@ function safeB64DecodeUTF8(b64) {
   const clearWebhookBtn = document.getElementById("clearWebhookBtn");
   const webhookStatus = document.getElementById("webhookStatus");
   const sendAsciiBtn = document.getElementById("sendAsciiBtn");
+
+  const relayKeyInput = document.getElementById("relayKeyInput");
 
   if (versionBadge) versionBadge.textContent = "v" + CURRENT_VERSION;
 
@@ -662,6 +672,13 @@ ${bottom}`;
       setWebhookStatus("No webhook set. Paste it and click Save.");
       return;
     }
+
+    const relayKey = (getStoredRelayKey() || (relayKeyInput.value || "").trim());
+    if (!relayKey) {
+      setWebhookStatus("No relay key set. Paste it and click Save.");
+      return;
+    }
+
     if (!isLikelyDiscordWebhook(url)) {
       setWebhookStatus("Webhook URL format looks wrong.");
       return;
@@ -683,10 +700,14 @@ ${bottom}`;
     sendAsciiBtn.disabled = true;
     sendAsciiBtn.textContent = "Sending...";
 
-    const resp = await fetch(url, {
+
+    const resp = await fetch(WORKER_RELAY_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content })
+      headers: {
+        "Content-Type": "application/json",
+        "X-Relay-Key": relayKey
+      },
+      body: JSON.stringify({ webhookUrl: url, content })
     });
 
     if (!resp.ok) {
