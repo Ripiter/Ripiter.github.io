@@ -4,7 +4,53 @@
   const toISODate = (d) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
 
   const CURRENT_VERSION = 1;
-  
+
+  const WEBHOOK_LS_KEY = "discordWebhookUrl";
+
+  function setWebhookStatus(msg) {
+    if (webhookStatus) webhookStatus.textContent = msg || "";
+  }
+
+  function getStoredWebhook() {
+    return (localStorage.getItem(WEBHOOK_LS_KEY) || "").trim();
+  }
+
+  function isLikelyDiscordWebhook(url) {
+    // Not bulletproof validation, but avoids obvious mistakes.
+    // Supports discord.com and discordapp.com
+    return /^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+/i.test(url);
+  }
+
+  function loadWebhookIntoUI() {
+    const stored = getStoredWebhook();
+    if (stored) {
+      webhookInput.value = stored;
+      setWebhookStatus("Webhook loaded from local storage.");
+    } else {
+      webhookInput.value = "";
+      setWebhookStatus("No webhook saved.");
+    }
+  }
+
+  function saveWebhookFromUI() {
+    const url = (webhookInput.value || "").trim();
+    if (!url) {
+      setWebhookStatus("Nothing to save.");
+      return;
+    }
+    if (!isLikelyDiscordWebhook(url)) {
+      setWebhookStatus("That does not look like a Discord webhook URL.");
+      return;
+    }
+    localStorage.setItem(WEBHOOK_LS_KEY, url);
+    setWebhookStatus("Webhook saved locally.");
+  }
+
+  function clearWebhook() {
+    localStorage.removeItem(WEBHOOK_LS_KEY);
+    webhookInput.value = "";
+    setWebhookStatus("Webhook cleared.");
+  }
 
 function safeB64DecodeUTF8(b64) {
     const cleaned = (b64 || "").trim().replace(/\s+/g, "");
@@ -181,6 +227,13 @@ function safeB64DecodeUTF8(b64) {
   const importBtn = document.getElementById("importBtn");
   const importStatus = document.getElementById("importStatus");
   const versionBadge = document.getElementById("versionBadge");
+
+
+  const webhookInput = document.getElementById("webhookInput");
+  const saveWebhookBtn = document.getElementById("saveWebhookBtn");
+  const clearWebhookBtn = document.getElementById("clearWebhookBtn");
+  const webhookStatus = document.getElementById("webhookStatus");
+  const sendAsciiBtn = document.getElementById("sendAsciiBtn");
 
   if (versionBadge) versionBadge.textContent = "v" + CURRENT_VERSION;
 
@@ -600,6 +653,61 @@ ${bottom}`;
     });
   }
 
+  async function sendAsciiToWebhook() {
+  try {
+    setWebhookStatus("");
+
+    const url = (getStoredWebhook() || (webhookInput.value || "").trim());
+    if (!url) {
+      setWebhookStatus("No webhook set. Paste it and click Save.");
+      return;
+    }
+    if (!isLikelyDiscordWebhook(url)) {
+      setWebhookStatus("Webhook URL format looks wrong.");
+      return;
+    }
+
+    const content = (asciiOut.value || "").trim();
+    if (!content) {
+      setWebhookStatus("Generate the ASCII output first.");
+      return;
+    }
+
+    // Discord content limit: 2000 chars
+    // Your split tool can produce multiple messages; for direct send we enforce single-message limit.
+    if (content.length > 2000) {
+      setWebhookStatus("ASCII output exceeds 2000 chars. Use Split for Discord (copy/paste), or reduce content.");
+      return;
+    }
+
+    sendAsciiBtn.disabled = true;
+    sendAsciiBtn.textContent = "Sending...";
+
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content })
+    });
+
+    if (!resp.ok) {
+      // Discord often returns JSON with "message" on errors
+      let detail = "";
+      try {
+        const j = await resp.json();
+        if (j && (j.message || j.code)) detail = ` (${j.message || "error"}${j.code ? `, code ${j.code}` : ""})`;
+      } catch { /* ignore */ }
+      throw new Error(`Discord returned ${resp.status}${detail}`);
+    }
+
+    setWebhookStatus("Sent to Discord.");
+  } catch (e) {
+    setWebhookStatus(e?.message || "Send failed.");
+  } finally {
+    sendAsciiBtn.disabled = false;
+    sendAsciiBtn.textContent = "Send to webhook";
+  }
+}
+
   async function copyFrom(el){
     const val = el.value || "";
     if (!val) return;
@@ -609,6 +717,9 @@ ${bottom}`;
   // ---- wiring ----
   addBtn.addEventListener("click", addEvent);
   importBtn.addEventListener("click", importBase64Replace);
+  saveWebhookBtn.addEventListener("click", saveWebhookFromUI);
+  clearWebhookBtn.addEventListener("click", clearWebhook);
+  sendAsciiBtn.addEventListener("click", sendAsciiToWebhook);
 
   clearBtn.addEventListener("click", () => {
     if (!confirm("Clear all events for all weeks in memory?")) return;
@@ -669,6 +780,7 @@ ${bottom}`;
 
   // ensure default start time is 00:00
   startTime.value = "00:00";
+  loadWebhookIntoUI();
 
   
 })();
