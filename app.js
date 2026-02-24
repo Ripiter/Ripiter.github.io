@@ -3,19 +3,19 @@
   const pad2 = (n) => String(n).padStart(2, "0");
   const toISODate = (d) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
 
-  const CURRENT_VERSION = 1;
+  const CURRENT_VERSION = 1.0;
   const WEBHOOK_LS_KEY = "discordWebhookUrl";
-  const RELAYKEY_LS_KEY = "discordRelayKey";  
-  const WORKER_RELAY_URL = "https://blue-hat-cb30.ripiter15.workers.dev";
+  const WORKERURL_LS_KEY = "discordWorkerUrl";
 
   function setWebhookStatus(msg) {
     if (webhookStatus) webhookStatus.textContent = msg || "";
+    console.log(msg);
   }
 
-  function getStoredRelayKey() {
-    return (localStorage.getItem(RELAYKEY_LS_KEY) || "").trim();
+  function getStoredWorkerUrl() {
+    return (localStorage.getItem(WORKERURL_LS_KEY) || "").trim();
   }
-
+  
   function getStoredWebhook() {
     return (localStorage.getItem(WEBHOOK_LS_KEY) || "").trim();
   }
@@ -28,12 +28,12 @@
 
 function loadWebhookIntoUI() {
     const storedWebhook = getStoredWebhook();
-    const storedRelayKey = getStoredRelayKey();
-
+    const storedWorkerURL = getStoredWorkerUrl();
+    
+    workerInput.value = storedWorkerURL || "";
     webhookInput.value = storedWebhook || "";
-    relayKeyInput.value = storedRelayKey || "";
 
-    if (storedWebhook && storedRelayKey) setWebhookStatus("Webhook + relay key loaded from local storage.");
+    if (storedWebhook && storedWorkerURL) setWebhookStatus("Webhook + relay key loaded from local storage.");
     else if (storedWebhook) setWebhookStatus("Webhook loaded. Missing relay key.");
     else setWebhookStatus("No webhook saved.");
   }
@@ -47,14 +47,14 @@ function loadWebhookIntoUI() {
     if (!rk) { setWebhookStatus("Relay key is required."); return; }
 
     localStorage.setItem(WEBHOOK_LS_KEY, url);
-    localStorage.setItem(RELAYKEY_LS_KEY, rk);
+    localStorage.setItem(WORKERURL_LS_KEY, rk);
     setWebhookStatus("Webhook + relay key saved locally.");
   }
 
 
 function clearWebhook() {
     localStorage.removeItem(WEBHOOK_LS_KEY);
-    localStorage.removeItem(RELAYKEY_LS_KEY);
+    localStorage.removeItem(WORKERURL_LS_KEY);
     webhookInput.value = "";
     relayKeyInput.value = "";
     setWebhookStatus("Webhook + relay key cleared.");
@@ -238,12 +238,12 @@ function safeB64DecodeUTF8(b64) {
 
 
   const webhookInput = document.getElementById("webhookInput");
+  const workerInput = document.getElementById("workerInput");
   const saveWebhookBtn = document.getElementById("saveWebhookBtn");
   const clearWebhookBtn = document.getElementById("clearWebhookBtn");
   const webhookStatus = document.getElementById("webhookStatus");
   const sendAsciiBtn = document.getElementById("sendAsciiBtn");
-
-  const relayKeyInput = document.getElementById("relayKeyInput");
+  const sendProgress = document.getElementById("sendProgress");
 
   if (versionBadge) versionBadge.textContent = "v" + CURRENT_VERSION;
 
@@ -468,6 +468,8 @@ function importBase64Replace() {
       asciiLenInfo.textContent = "";
 
       importStatus.textContent = `Imported ${newEvents.length} event(s).`;
+
+      generateASCII()
     } catch (e) {
       importStatus.textContent = (e && e.message) ? e.message : "Import failed.";
       console.log(e);
@@ -534,7 +536,7 @@ function importBase64Replace() {
     }
 
     // column widths
-    const colW = 13; // slightly wider to reduce wrapping
+    const colW = 9; // slightly wider to reduce wrapping
     const cellPad = (s) => {
       const t = (s ?? "").toString();
       if (t.length > colW) return t.slice(0, colW);
@@ -608,6 +610,64 @@ ${bottom}`;
     asciiLenInfo.innerHTML = `Length: <span class="${ok ? "ok":"warn"}">${len}</span> / 2000`;
   }
 
+
+function buildDiscordMessagesFromAscii(asciiWrapped) {
+  const text = (asciiWrapped || "").trim();
+  if (!text) return [];
+
+  // Strip outer fences if present
+  let inner = text;
+  if (inner.startsWith("```")) {
+    const lines = inner.split("\n");
+    if (lines.length >= 2 && lines[0].startsWith("```")) lines.shift();
+    if (lines.length >= 1 && lines[lines.length - 1].trim() === "```") lines.pop();
+    inner = lines.join("\n");
+  }
+
+  // We re-wrap each chunk in its own code fence
+  const chunkLimit = 1900; // slack for fences
+  const chunks = [];
+  let cur = "";
+
+  for (const line of inner.split("\n")) {
+    const add = (cur ? "\n" : "") + line;
+    if ((cur.length + add.length) > chunkLimit) {
+      if (cur) chunks.push(cur);
+
+      if (line.length > chunkLimit) {
+        // hard-split a long line
+        let start = 0;
+        while (start < line.length) {
+          chunks.push(line.slice(start, start + chunkLimit));
+          start += chunkLimit;
+        }
+        cur = "";
+      } else {
+        cur = line;
+      }
+    } else {
+      cur += add;
+    }
+  }
+  if (cur) chunks.push(cur);
+
+  return chunks.map(c => "```text\n" + c + "\n```");
+}
+
+async function postToRelay({ workerUrl, webhookUrl, content, signal }) {
+  const resp = await fetch(workerUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ webhookUrl, content }),
+    signal
+  });
+
+  const txt = await resp.text().catch(() => "");
+  return { ok: resp.ok, status: resp.status, text: txt };
+}
+
   function splitForDiscord(){
     const text = asciiOut.value || "";
     if (!text) return;
@@ -663,70 +723,96 @@ ${bottom}`;
     });
   }
 
-  async function sendAsciiToWebhook() {
-  try {
-    setWebhookStatus("");
-
-    const url = (getStoredWebhook() || (webhookInput.value || "").trim());
-    if (!url) {
-      setWebhookStatus("No webhook set. Paste it and click Save.");
-      return;
-    }
-
-    const relayKey = (getStoredRelayKey() || (relayKeyInput.value || "").trim());
-    if (!relayKey) {
-      setWebhookStatus("No relay key set. Paste it and click Save.");
-      return;
-    }
-
-    if (!isLikelyDiscordWebhook(url)) {
-      setWebhookStatus("Webhook URL format looks wrong.");
-      return;
-    }
-
-    const content = (asciiOut.value || "").trim();
-    if (!content) {
-      setWebhookStatus("Generate the ASCII output first.");
-      return;
-    }
-
-    // Discord content limit: 2000 chars
-    // Your split tool can produce multiple messages; for direct send we enforce single-message limit.
-    if (content.length > 2000) {
-      setWebhookStatus("ASCII output exceeds 2000 chars. Use Split for Discord (copy/paste), or reduce content.");
-      return;
-    }
-
-    sendAsciiBtn.disabled = true;
-    sendAsciiBtn.textContent = "Sending...";
-
-
-    const resp = await fetch(WORKER_RELAY_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Relay-Key": relayKey
-      },
-      body: JSON.stringify({ webhookUrl: url, content })
-    });
-
-    if (!resp.ok) {
-      // Discord often returns JSON with "message" on errors
-      let detail = "";
-      try {
-        const j = await resp.json();
-        if (j && (j.message || j.code)) detail = ` (${j.message || "error"}${j.code ? `, code ${j.code}` : ""})`;
-      } catch { /* ignore */ }
-      throw new Error(`Discord returned ${resp.status}${detail}`);
-    }
-
-    setWebhookStatus("Sent to Discord.");
-  } catch (e) {
-    setWebhookStatus(e?.message || "Send failed.");
-  } finally {
-    sendAsciiBtn.disabled = false;
-    sendAsciiBtn.textContent = "Send to webhook";
+  function setSendProgress(msg) {
+    if (sendProgress) sendProgress.textContent = msg || "";
   }
+
+  async function sendAsciiToWebhook() {
+    try {
+      setWebhookStatus("");
+      setSendProgress("");
+
+      const webhookUrl = (getStoredWebhook() || (webhookInput.value || "").trim());
+      if (!webhookUrl) { setWebhookStatus("No webhook set. Paste it and click Save."); return; }
+      if (!isLikelyDiscordWebhook(webhookUrl)) { setWebhookStatus("Webhook URL format looks wrong."); return; }
+      
+      const workerUrl = getStoredWorkerUrl() || (workerUrlInput.value || "").trim();
+
+      if (!workerUrl) {
+        setWebhookStatus("No Worker URL set.");
+        return false;
+      }
+      
+      const ascii = (asciiOut.value || "").trim();
+      if (!ascii) { setWebhookStatus("Generate the ASCII output first."); return; }
+
+      const messages = buildDiscordMessagesFromAscii(ascii);
+
+      // If it’s already <= 2000, this will be a single message anyway.
+      if (messages.length === 0) { setWebhookStatus("Nothing to send."); return; }
+
+      // UI state
+      sendAsciiBtn.disabled = true;
+      // stopSendBtn.disabled = false;
+      // stopSendBtn.style.display = "";
+      sendAbort = new AbortController();
+
+      setSendProgress(`Sending 1/${messages.length}...`);
+
+      // Sequential send with basic rate-limit handling
+      for (let i = 0; i < messages.length; i++) {
+        if (sendAbort.signal.aborted) throw new Error("Send cancelled.");
+
+        const content = messages[i];
+
+        // Final hard check (Discord max)
+        if (content.length > 2000) {
+          throw new Error(`Chunk ${i + 1} exceeds 2000 chars. (length ${content.length})`);
+        }
+
+        const res = await postToRelay({
+          workerUrl: workerUrl,
+          webhookUrl,
+          content,
+          signal: sendAbort.signal
+        });
+
+        // Worker normalizes success to 200 in your setup, but still handle errors
+        if (!res.ok) {
+          // If your worker returns 429, you can wait and retry.
+          // If your worker forwards Discord 429, you may see it here.
+          throw new Error(`Failed on chunk ${i + 1}: HTTP ${res.status}${res.text ? ` - ${res.text}` : ""}`);
+        }
+
+        setSendProgress(`Sent ${i + 1}/${messages.length}`);
+
+        // Small delay to be polite (reduce rate-limit risk)
+        await sleep(350, sendAbort.signal);
+      }
+
+      setWebhookStatus(`Sent ${messages.length} message(s) to Discord.`);
+      setSendProgress("");
+    } catch (e) {
+      setWebhookStatus(e?.message || "Send failed.");
+    } finally {
+      sendAsciiBtn.disabled = false;
+      // stopSendBtn.disabled = true;
+      // optional: hide stop button when idle
+      // stopSendBtn.style.display = "none";
+      sendAbort = null;
+    }
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    if (!signal) return;
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(new Error("Aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
   async function copyFrom(el){
@@ -802,6 +888,6 @@ ${bottom}`;
   // ensure default start time is 00:00
   startTime.value = "00:00";
   loadWebhookIntoUI();
-
+  loadWorkerIntoUI();
   
 })();
