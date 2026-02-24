@@ -9,6 +9,13 @@
 <body>
   <h1>Event Planner</h1>
 
+<div class="row gap-8" style="flex-wrap:nowrap;">
+  <input id="webhookInput" type="password" placeholder="Webhook URL" />
+  <input id="workerInput" type="password" placeholder="Relay Worker" />
+  <button id="saveWebhookBtn" class="primary">Save</button>
+  <button id="clearWebhookBtn" class="danger">Clear</button>
+</div>
+
   <div class="grid">
     <!-- LEFT: input -->
     <div class="card">
@@ -67,6 +74,8 @@
     </div>
 
     <!-- RIGHT: outputs -->
+
+    
     <div class="card">
       <h2>Outputs</h2>
 
@@ -80,7 +89,7 @@
         <div class="row space-between align-end">
           <div class="muted">Import</div>
           <div class="row gap-8">
-            <button class="primary" id="importBtn">Import (Replace)</button>
+            <button class="primary" id="importBtn">Import (Replace current)</button>
           </div>
         </div>
         <textarea class="importExportInput" id="importIn" placeholder="Export here, then click Import (Replace)"></textarea>
@@ -106,6 +115,8 @@
           <div class="row gap-8">
             <button id="copyAsciiBtn">Copy</button>
             <button id="splitAsciiBtn">Split for Discord</button>
+            <button id="sendAsciiBtn" class="primary">Send to webhook</button>
+            <span class="muted" id="sendProgress"></span>
           </div>
         </div>
         <textarea id="asciiOut" placeholder="(click Generate ASCII week table)"></textarea>
