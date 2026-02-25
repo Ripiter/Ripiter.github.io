@@ -176,6 +176,10 @@ button:disabled{ opacity:.55; cursor:not-allowed; }
   gap:10px;
 }
 
+/* #weekCanvas{
+  max-width: 2000px;
+} */
+
 .warn{ color: #ffd38c; }
 .ok{ color: #b9ffca; }
 

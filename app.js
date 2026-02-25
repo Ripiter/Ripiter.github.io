@@ -245,6 +245,285 @@ function safeB64DecodeUTF8(b64) {
   const sendAsciiBtn = document.getElementById("sendAsciiBtn");
   const sendProgress = document.getElementById("sendProgress");
 
+  // ---------- Image rendering (Canvas) ----------
+const genImageBtn = document.getElementById("genImageBtn");
+const downloadImageBtn = document.getElementById("downloadImageBtn");
+const copyImageBtn = document.getElementById("copyImageBtn");
+const weekCanvas = document.getElementById("weekCanvas");
+
+let lastPngBlob = null;
+
+function wrapLines(ctx, text, maxWidth) {
+  const t = (text || "").toString().trim();
+  if (!t) return [];
+  const words = t.split(/\s+/);
+  const lines = [];
+  let cur = "";
+
+  for (const w of words) {
+    const candidate = cur ? (cur + " " + w) : w;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      cur = candidate;
+    } else {
+      if (cur) lines.push(cur);
+      // hard-break if single word too long
+      if (ctx.measureText(w).width <= maxWidth) {
+        cur = w;
+      } else {
+        let part = "";
+        for (const ch of w) {
+          const cand2 = part + ch;
+          if (ctx.measureText(cand2).width <= maxWidth) part = cand2;
+          else {
+            if (part) lines.push(part);
+            part = ch;
+          }
+        }
+        cur = part;
+      }
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+
+
+function getISOWeekStartFromWeekInput(weekValue) {
+  const m = /^(\d{4})-W(\d{2})$/.exec(weekValue);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const week = Number(m[2]);
+
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = (jan4.getDay() + 6) % 7; // Mon=0
+  const mondayWeek1 = new Date(jan4);
+  mondayWeek1.setDate(jan4.getDate() - jan4Day);
+
+  const monday = new Date(mondayWeek1);
+  monday.setDate(mondayWeek1.getDate() + (week - 1) * 7);
+  return monday;
+}
+
+function renderWeekToCanvas() {
+  const obj = buildExportObject(); // { version, weekStart, events:[...] }
+
+  const ws = parseISODate(obj.weekStart);
+  if (!ws) {
+    alert("No week selected.");
+    return;
+  }
+  const we = new Date(ws); we.setDate(ws.getDate() + 6);
+
+  // Group events by day index Mon=0..Sun=6
+  const byDay = Array.from({ length: 7 }, () => []);
+  for (const ev of obj.events) {
+    const d = parseISODate(ev.date);
+    if (!d) continue;
+    const idx = (d.getDay() + 6) % 7;
+    byDay[idx].push(ev);
+  }
+  for (let i = 0; i < 7; i++) {
+    byDay[i].sort((a,b) => (a.startTime||"").localeCompare(b.startTime||"") || (a.name||"").localeCompare(b.name||""));
+  }
+
+  // Canvas metrics
+  const W = 1400;
+  const padding = 24;
+  const headerH = 70;
+  const colHeaderH = 46;
+  const gridTop = padding + headerH;
+  const colW = Math.floor((W - padding*2) / 7);
+
+  // Typography
+  const canvas = weekCanvas;
+  const ctx = canvas.getContext("2d");
+
+  // Pre-calc row heights by measuring wrapped text
+  ctx.font = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  const timeFont = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  const nameFont = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  const descFont = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+
+  const cellInnerPad = 10;
+  const lineGap = 6;
+  const eventGap = 10;
+
+  function measureEventHeight(ev) {
+    const maxTextW = colW - cellInnerPad*2;
+    let h = 0;
+
+    // time
+    ctx.font = timeFont;
+    h += 18;
+
+    // name
+    ctx.font = nameFont;
+    const nameLines = wrapLines(ctx, ev.name || "", maxTextW);
+    h += nameLines.length * 18;
+
+    // desc (optional, but default: include if exists)
+    const desc = (ev.description || "").trim();
+    if (desc) {
+      ctx.font = descFont;
+      const descLines = wrapLines(ctx, desc, maxTextW);
+      h += lineGap + descLines.length * 16;
+    }
+
+    h += eventGap; // bottom spacing after event
+    return h;
+  }
+
+  // Compute per-day required height
+  const dayHeights = byDay.map(dayEvents => {
+    let h = 0;
+    for (const ev of dayEvents) h += measureEventHeight(ev);
+    // Minimum height so empty days still look decent
+    return Math.max(h, 80);
+  });
+
+  const contentH = Math.max(...dayHeights);
+  const H = gridTop + colHeaderH + contentH + padding;
+
+  canvas.width = W;
+  canvas.height = H;
+
+  // Background
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+
+  // Header
+  ctx.fillStyle = "#111";
+  ctx.font = "28px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  ctx.fillText(`${fmtDDMM(ws)} - ${fmtDDMM(we)}`, padding, padding + 34);
+
+  ctx.fillStyle = "#555";
+  ctx.font = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  ctx.fillText(`${obj.weekStart} … ${(() => { const x=new Date(ws); x.setDate(x.getDate()+6); return x.toISOString().slice(0,10); })()}`, padding, padding + 56);
+
+  // Grid lines
+  const left = padding;
+  const top = gridTop;
+  const right = padding + colW * 7;
+  const bottom = top + colHeaderH + contentH;
+
+  ctx.strokeStyle = "#cfcfcf";
+  ctx.lineWidth = 1;
+
+  // Outer border
+  ctx.strokeRect(left, top, right - left, bottom - top);
+  
+  // Vertical lines
+  for (let i = 1; i < 7; i++) {
+    const x = left + i * colW;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+  }
+
+  // Header separator line
+  ctx.beginPath();
+  ctx.moveTo(left, top + colHeaderH);
+  ctx.lineTo(right, top + colHeaderH);
+  ctx.stroke();
+
+  // Column headers
+  const dayNames = ["Pn","Wt","Śr","Cz","Pt","So","Nd"];
+  ctx.fillStyle = "#111";
+  ctx.font = "18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+
+  for (let i = 0; i < 7; i++) {
+    const x0 = left + i * colW;
+    const d = new Date(ws); d.setDate(ws.getDate() + i);
+    const title = `${dayNames[i]}  ${fmtDDMM(d)}`;
+
+    ctx.fillText(title, x0 + 12, top + 30);
+  }
+
+  // Events
+  for (let i = 0; i < 7; i++) {
+    const x0 = left + i * colW;
+    let y = top + colHeaderH + 14;
+
+    for (const ev of byDay[i]) {
+      const maxTextW = colW - cellInnerPad*2;
+
+      // time line
+      ctx.fillStyle = "#111";
+      ctx.font = timeFont;
+      const time = ev.endTime ? `${ev.startTime}-${ev.endTime}` : (ev.startTime || "");
+      ctx.fillText(time, x0 + cellInnerPad, y);
+      y += 22;
+
+      // name lines
+      ctx.font = nameFont;
+      const nameLines = wrapLines(ctx, ev.name || "", maxTextW);
+      for (const line of nameLines) {
+        ctx.fillText(line, x0 + cellInnerPad, y);
+        y += 22;
+      }
+
+      // description (if exists)
+      const desc = (ev.description || "").trim();
+      if (desc) {
+        y += 4;
+        ctx.fillStyle = "#444";
+        ctx.font = descFont;
+        const descLines = wrapLines(ctx, desc, maxTextW);
+        for (const line of descLines) {
+          ctx.fillText(line, x0 + cellInnerPad, y);
+          y += 18;
+        }
+      }
+
+      y += eventGap;
+
+      // Stop drawing if it exceeds content area (rare)
+      if (y > bottom - 10) break;
+    }
+  }
+
+  // Show canvas preview (optional)
+  canvas.style.display = "block";
+
+  // Create a blob for download/copy
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      lastPngBlob = blob;
+      resolve(blob);
+    }, "image/png");
+  });
+}
+
+async function downloadLastPng() {
+  if (!lastPngBlob) return;
+  const url = URL.createObjectURL(lastPngBlob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "week.png";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function copyLastPngToClipboard() {
+  if (!lastPngBlob) return;
+  if (!navigator.clipboard || !window.ClipboardItem) {
+    alert("Clipboard image copy not supported in this browser.");
+    return;
+  }
+  await navigator.clipboard.write([
+    new ClipboardItem({ "image/png": lastPngBlob })
+  ]);
+}
+
+// Wire buttons
+if (genImageBtn) genImageBtn.addEventListener("click", async () => { await renderWeekToCanvas(); });
+if (downloadImageBtn) downloadImageBtn.addEventListener("click", downloadLastPng);
+if (copyImageBtn) copyImageBtn.addEventListener("click", copyLastPngToClipboard);
+
   if (versionBadge) versionBadge.textContent = "v" + CURRENT_VERSION;
 
   // Polish 2-letter
