@@ -888,6 +888,5 @@ function sleep(ms, signal) {
   // ensure default start time is 00:00
   startTime.value = "00:00";
   loadWebhookIntoUI();
-  loadWorkerIntoUI();
   
 })();
