@@ -244,6 +244,7 @@ function safeB64DecodeUTF8(b64) {
   const webhookStatus = document.getElementById("webhookStatus");
   const sendAsciiBtn = document.getElementById("sendAsciiBtn");
   const sendProgress = document.getElementById("sendProgress");
+  const colorEl = document.getElementById("color");
 
   // ---------- Image rendering (Canvas) ----------
 const genImageBtn = document.getElementById("genImageBtn");
@@ -306,14 +307,37 @@ function getISOWeekStartFromWeekInput(weekValue) {
 }
 
 function renderWeekToCanvas() {
+  // --- helpers local to this function (color background + rounded rect) ---
+  function hexToRgba(hex, a) {
+    const h = (hex || "").replace("#", "").trim();
+    const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+    if (!/^[0-9a-fA-F]{6}$/.test(full)) return `rgba(90,167,255,${a})`;
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
   const obj = buildExportObject(); // { version, weekStart, events:[...] }
 
   const ws = parseISODate(obj.weekStart);
   if (!ws) {
     alert("No week selected.");
-    return;
+    return Promise.resolve(null);
   }
-  const we = new Date(ws); we.setDate(ws.getDate() + 6);
+  const we = new Date(ws);
+  we.setDate(ws.getDate() + 6);
 
   // Group events by day index Mon=0..Sun=6
   const byDay = Array.from({ length: 7 }, () => []);
@@ -324,7 +348,11 @@ function renderWeekToCanvas() {
     byDay[idx].push(ev);
   }
   for (let i = 0; i < 7; i++) {
-    byDay[i].sort((a,b) => (a.startTime||"").localeCompare(b.startTime||"") || (a.name||"").localeCompare(b.name||""));
+    byDay[i].sort(
+      (a, b) =>
+        (a.startTime || "").localeCompare(b.startTime || "") ||
+        (a.name || "").localeCompare(b.name || "")
+    );
   }
 
   // Canvas metrics
@@ -333,14 +361,12 @@ function renderWeekToCanvas() {
   const headerH = 70;
   const colHeaderH = 46;
   const gridTop = padding + headerH;
-  const colW = Math.floor((W - padding*2) / 7);
+  const colW = Math.floor((W - padding * 2) / 7);
 
-  // Typography
   const canvas = weekCanvas;
   const ctx = canvas.getContext("2d");
 
-  // Pre-calc row heights by measuring wrapped text
-  ctx.font = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  // Typography
   const timeFont = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
   const nameFont = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
   const descFont = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
@@ -349,8 +375,9 @@ function renderWeekToCanvas() {
   const lineGap = 6;
   const eventGap = 10;
 
+  // Pre-calc row heights by measuring wrapped text
   function measureEventHeight(ev) {
-    const maxTextW = colW - cellInnerPad*2;
+    const maxTextW = colW - cellInnerPad * 2;
     let h = 0;
 
     // time
@@ -362,7 +389,7 @@ function renderWeekToCanvas() {
     const nameLines = wrapLines(ctx, ev.name || "", maxTextW);
     h += nameLines.length * 18;
 
-    // desc (optional, but default: include if exists)
+    // desc (optional)
     const desc = (ev.description || "").trim();
     if (desc) {
       ctx.font = descFont;
@@ -375,10 +402,9 @@ function renderWeekToCanvas() {
   }
 
   // Compute per-day required height
-  const dayHeights = byDay.map(dayEvents => {
+  const dayHeights = byDay.map((dayEvents) => {
     let h = 0;
     for (const ev of dayEvents) h += measureEventHeight(ev);
-    // Minimum height so empty days still look decent
     return Math.max(h, 80);
   });
 
@@ -399,7 +425,15 @@ function renderWeekToCanvas() {
 
   ctx.fillStyle = "#555";
   ctx.font = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-  ctx.fillText(`${obj.weekStart} … ${(() => { const x=new Date(ws); x.setDate(x.getDate()+6); return x.toISOString().slice(0,10); })()}`, padding, padding + 56);
+  ctx.fillText(
+    `${obj.weekStart} … ${(() => {
+      const x = new Date(ws);
+      x.setDate(x.getDate() + 6);
+      return x.toISOString().slice(0, 10);
+    })()}`,
+    padding,
+    padding + 56
+  );
 
   // Grid lines
   const left = padding;
@@ -412,7 +446,7 @@ function renderWeekToCanvas() {
 
   // Outer border
   ctx.strokeRect(left, top, right - left, bottom - top);
-  
+
   // Vertical lines
   for (let i = 1; i < 7; i++) {
     const x = left + i * colW;
@@ -429,15 +463,15 @@ function renderWeekToCanvas() {
   ctx.stroke();
 
   // Column headers
-  const dayNames = ["Pn","Wt","Śr","Cz","Pt","So","Nd"];
+  const dayNames = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"];
   ctx.fillStyle = "#111";
   ctx.font = "18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 
   for (let i = 0; i < 7; i++) {
     const x0 = left + i * colW;
-    const d = new Date(ws); d.setDate(ws.getDate() + i);
+    const d = new Date(ws);
+    d.setDate(ws.getDate() + i);
     const title = `${dayNames[i]}  ${fmtDDMM(d)}`;
-
     ctx.fillText(title, x0 + 12, top + 30);
   }
 
@@ -447,16 +481,32 @@ function renderWeekToCanvas() {
     let y = top + colHeaderH + 14;
 
     for (const ev of byDay[i]) {
-      const maxTextW = colW - cellInnerPad*2;
+      const maxTextW = colW - cellInnerPad * 2;
+
+      // Measure event height so we can paint a background "card"
+      const eventH = measureEventHeight(ev);
+
+      // Background (soft tint based on ev.color)
+      const bgX = x0 + 6;
+      const bgY = y - 16; // a bit above the time line
+      const bgW = colW - 12;
+      const bgH = Math.max(28, eventH - 6);
+
+      ctx.fillStyle = hexToRgba(ev.color || "#5aa7ff", 0.18);
+      roundRect(ctx, bgX, bgY, bgW, bgH, 10);
+      ctx.fill();
 
       // time line
       ctx.fillStyle = "#111";
       ctx.font = timeFont;
-      const time = ev.endTime ? `${ev.startTime}-${ev.endTime}` : (ev.startTime || "");
+      const time = ev.endTime
+        ? `${ev.startTime}-${ev.endTime}`
+        : (ev.startTime || "");
       ctx.fillText(time, x0 + cellInnerPad, y);
       y += 22;
 
       // name lines
+      ctx.fillStyle = "#111";
       ctx.font = nameFont;
       const nameLines = wrapLines(ctx, ev.name || "", maxTextW);
       for (const line of nameLines) {
@@ -484,7 +534,6 @@ function renderWeekToCanvas() {
     }
   }
 
-  // Show canvas preview (optional)
   canvas.style.display = "block";
 
   // Create a blob for download/copy
@@ -619,7 +668,10 @@ if (copyImageBtn) copyImageBtn.addEventListener("click", copyLastPngToClipboard)
       item.innerHTML = `
         <div class="eventTop">
           <div>
-            <div class="eventTitle">${escapeHTML(ev.name || "(no name)")}</div>
+             <div class="eventTitle">
+               <span class="colorDot" style="background:${escapeHTML(ev.color || "#ffffff")}"></span>
+               ${escapeHTML(ev.name || "(no name)")}
+             </div>
             <div class="eventMeta">${escapeHTML(metaLines.join("\n"))}</div>
           </div>
           <div class="row gap-8">
@@ -653,6 +705,7 @@ if (copyImageBtn) copyImageBtn.addEventListener("click", copyLastPngToClipboard)
 
     const nm = (nameEl.value || "").trim();
     const ds = (descEl.value || "").trim();
+    const col = (colorEl?.value || "").trim() || "#5aa7ff";
 
     if (!nm) { alert("Name is required."); return; }
 
@@ -662,7 +715,8 @@ if (copyImageBtn) copyImageBtn.addEventListener("click", copyLastPngToClipboard)
       startTime: st,
       endTime: et || "",
       name: nm,
-      desc: ds
+      desc: ds,
+      color: col
     });
 
     // reset inputs (keep date/week). Start time back to 00:00.
@@ -687,6 +741,7 @@ function normalizeImportedEvent(ev) {
   const endTime = (ev?.endTime || "").trim();
   const name = (ev?.name || "").toString().trim();
   const desc = (ev?.description || "").toString().trim();
+  const color = (ev?.color || "").toString().trim();
 
   if (!date || !parseISODate(date)) throw new Error("Invalid event date: " + date);
   if (!name) throw new Error("Event name is required.");
@@ -697,7 +752,8 @@ function normalizeImportedEvent(ev) {
     startTime,
     endTime,
     name,
-    desc
+    desc,
+    color: color || "#ffffff"
   };
 }
 
@@ -776,7 +832,8 @@ function importBase64Replace() {
         startTime: ev.startTime,
         endTime: ev.endTime || "",
         name: ev.name,
-        description: ev.desc || ""
+        description: ev.desc || "",
+        color: ev.color || ""
       }))
     };
   }
