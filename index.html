@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Event Planner</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>Event Planner</h1>
+
+<div class="row gap-8" style="flex-wrap:nowrap;">
+  <input id="webhookInput" type="password" placeholder="Webhook URL" />
+  <input id="workerInput" type="password" placeholder="Relay Worker" />
+  <button id="saveWebhookBtn" class="primary">Save</button>
+  <button id="clearWebhookBtn" class="danger">Clear</button>
+</div>
+
+  <div class="grid">
+    <!-- LEFT: input -->
+    <div class="card">
+      <!-- <h2>Week + event input</h2> -->
+
+      <div class="row gap-12">
+        <div class="flex-1 minw-190">
+          <label>Week</label>
+          <div class="weekPickerRow">
+            <button id="prevWeekBtn" title="Previous week" aria-label="Previous week">◀</button>
+            <input id="weekPicker" type="week" />
+            <button id="nextWeekBtn" title="Next week" aria-label="Next week">▶</button>
+          </div>
+          <div class="muted footerNote" id="weekRangeText"></div>
+        </div>
+
+        <div class="flex-1 minw-190">
+          <label for="selectedDate">Date</label>
+          <input id="selectedDate" type="date" />
+        </div>
+      </div>
+
+      <div class="weekDays" id="weekDays"></div>
+
+      <hr class="divider">
+
+      <div class="row gap-12">
+        <div class="flex-1 minw-160">
+          <label for="startTime">Start time</label>
+          <input id="startTime" type="time" value="00:00" />
+        </div>
+
+        <div class="flex-1 minw-160">
+          <label for="endTime">End time (optional)</label>
+          <input id="endTime" type="time" />
+        </div>
+      </div>
+
+      <div class="row mt-10 gap-12">
+        <div class="flex-1 minw-200">
+          <label for="name">Name</label>
+          <input id="name" type="text" placeholder="e.g. Trening" class="w-100" />
+        </div>
+
+        <div class="flex-1 minw-200">
+          <label for="desc">Description</label>
+          <input id="desc" type="text" placeholder="Extra info" class="w-100" />
+        </div>
+
+         <div class="flex-1 minw-160">
+            <label for="color">Color</label>
+            <input id="color" type="color" value="#ffffff" />
+        </div>
+      </div>
+
+      <div class="row mt-12 space-between">
+        <button class="primary" id="addBtn">Add event</button>
+        <button class="danger" id="clearBtn">Clear all events</button>
+      </div>
+
+      <div class="eventsList" id="eventsList"></div>
+    </div>
+
+    <!-- RIGHT: outputs -->
+
+    
+    <div class="card">
+      <h2>Outputs</h2>
+
+      <div class="row gap-10 mb-10">
+        <button class="primary" id="genBase64Btn">Generate Export</button>
+        <button class="primary" id="genAsciiBtn">Generate ASCII week table</button>
+        <button id="genImageBtn" class="primary">Generate image</button>
+        <button id="downloadImageBtn">Download PNG</button>
+        <button id="copyImageBtn">Copy image</button>
+      </div>
+
+        <!-- NEW: Import -->
+      <div class="section">
+        <div class="row space-between align-end">
+          <div class="muted">Import</div>
+          <div class="row gap-8">
+            <button class="primary" id="importBtn">Import (Replace current)</button>
+          </div>
+        </div>
+        <textarea class="importExportInput" id="importIn" placeholder="Export here, then click Import (Replace)"></textarea>
+        <div class="muted footerNote" id="importStatus"></div>
+      </div>
+
+      <div class="section">
+        <div class="row space-between align-end">
+          <div class="muted">Export</div>
+          <div class="row gap-8">
+            <button id="copyBase64Btn">Copy</button>
+          </div>
+        </div>
+        <textarea class="importExportInput" id="base64Out" placeholder="Generated Export"></textarea>
+      </div>
+
+      <div class="section">
+        <div class="row space-between align-end">
+          <div>
+            <div class="muted">ASCII week table (wrapped in code fences for Discord)</div>
+            <div class="muted" id="asciiLenInfo"></div>
+            
+          </div>
+          <div class="row gap-8">
+            <button id="copyAsciiBtn">Copy</button>
+            <button id="splitAsciiBtn">Split for Discord</button>
+            <button id="sendAsciiBtn" class="primary">Send ASCII to webhook</button>
+            <span class="muted" id="sendProgress"></span>
+          </div>
+        </div>
+        <textarea id="asciiOut" placeholder="(click Generate ASCII week table)"></textarea>
+        <div class="splitBox" id="splitBox" style="display:none;"></div>
+      </div>
+
+
+      <div class="section">
+        <div class="row space-between align-end">
+          <div>
+            <div class="muted">Image week table</div>
+            <div class="muted" id="asciiLenInfo"></div>
+            
+          </div>
+          <div class="row gap-8">
+            <!-- <button id="copyAsciiBtn">Copy</button>
+            <button id="splitAsciiBtn">Split for Discord</button> -->
+            <button id="sendImageBtn" class="primary">Send to webhook</button>
+            <span class="muted" id="sendProgress"></span>
+          </div>
+        </div>
+        <!-- <textarea id="asciiOut" placeholder="(click Generate ASCII week table)"></textarea> -->
+        <canvas id="weekCanvas"></canvas>
+        <div class="splitBox" id="splitBox" style="display:none;"></div>
+      </div>
+      
+       <!-- Footer with version bottom-right -->
+  <div class="footerRow">
+    <div class="muted">
+      
+    </div>
+    <div class="muted mono" id="versionBadge">v1</div>
+  </div>
+</div>
+
+  <script src="app.js"></script>
+</body>
+</html>
