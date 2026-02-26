@@ -9,20 +9,29 @@
 <body>
   <h1>Event Planner</h1>
 
-<div class="row gap-8" style="flex-wrap:nowrap;">
-  <input id="webhookInput" type="password" placeholder="Webhook URL" />
-  <input id="workerInput" type="password" placeholder="Relay Worker" />
-  <button id="saveWebhookBtn" class="primary">Save</button>
-  <button id="clearWebhookBtn" class="danger">Clear</button>
-</div>
+  <div class="row gap-8" style="flex-wrap:nowrap;">
+    <input id="webhookInput" type="password" placeholder="Webhook URL" />
+    <input id="workerInput" type="password" placeholder="Relay Worker" />
+    <button id="saveWebhookBtn" class="primary">Save</button>
+    <button id="clearWebhookBtn" class="danger">Clear</button>
+    <span class="muted" id="webhookStatus"></span>
+  </div>
 
   <div class="grid">
     <!-- LEFT: input -->
     <div class="card">
-      <!-- <h2>Week + event input</h2> -->
-
       <div class="row gap-12">
         <div class="flex-1 minw-190">
+          <label>Mode</label>
+          <div class="modeToggle">
+            <button id="modeWeekBtn" class="primary" type="button">Week</button>
+            <button id="modeMonthBtn" type="button">Month</button>
+          </div>
+          <div class="muted footerNote" id="modeHint"></div>
+        </div>
+
+        <!-- Week controls -->
+        <div class="flex-1 minw-190" id="weekControls">
           <label>Week</label>
           <div class="weekPickerRow">
             <button id="prevWeekBtn" title="Previous week" aria-label="Previous week">◀</button>
@@ -32,9 +41,23 @@
           <div class="muted footerNote" id="weekRangeText"></div>
         </div>
 
+        <!-- Month controls -->
+        <div class="flex-1 minw-190" id="monthControls" style="display:none;">
+          <label>Month</label>
+          <div class="weekPickerRow">
+            <button id="prevMonthBtn" title="Previous month" aria-label="Previous month">◀</button>
+            <input id="monthPicker" type="month" />
+            <button id="nextMonthBtn" title="Next month" aria-label="Next month">▶</button>
+          </div>
+          <div class="muted footerNote" id="monthRangeText"></div>
+        </div>
+      </div>
+
+      <div class="row gap-12 mt-10">
         <div class="flex-1 minw-190">
           <label for="selectedDate">Date</label>
           <input id="selectedDate" type="date" />
+          <div class="muted footerNote" id="dateClampHint"></div>
         </div>
       </div>
 
@@ -52,6 +75,11 @@
           <label for="endTime">End time (optional)</label>
           <input id="endTime" type="time" />
         </div>
+
+        <div class="flex-1 minw-160">
+          <label for="color">Color</label>
+          <input id="color" type="color" value="#ffffff" />
+        </div>
       </div>
 
       <div class="row mt-10 gap-12">
@@ -59,15 +87,9 @@
           <label for="name">Name</label>
           <input id="name" type="text" placeholder="e.g. Trening" class="w-100" />
         </div>
-
         <div class="flex-1 minw-200">
           <label for="desc">Description</label>
           <input id="desc" type="text" placeholder="Extra info" class="w-100" />
-        </div>
-
-         <div class="flex-1 minw-160">
-            <label for="color">Color</label>
-            <input id="color" type="color" value="#ffffff" />
         </div>
       </div>
 
@@ -80,20 +102,17 @@
     </div>
 
     <!-- RIGHT: outputs -->
-
-    
     <div class="card">
       <h2>Outputs</h2>
 
       <div class="row gap-10 mb-10">
         <button class="primary" id="genBase64Btn">Generate Export</button>
-        <button class="primary" id="genAsciiBtn">Generate ASCII week table</button>
+        <button class="primary" id="genAsciiBtn">Generate ASCII table</button>
         <button id="genImageBtn" class="primary">Generate image</button>
         <button id="downloadImageBtn">Download PNG</button>
         <button id="copyImageBtn">Copy image</button>
       </div>
 
-        <!-- NEW: Import -->
       <div class="section">
         <div class="row space-between align-end">
           <div class="muted">Import</div>
@@ -118,49 +137,38 @@
       <div class="section">
         <div class="row space-between align-end">
           <div>
-            <div class="muted">ASCII week table (wrapped in code fences for Discord)</div>
+            <div class="muted">ASCII table (wrapped in code fences for Discord)</div>
             <div class="muted" id="asciiLenInfo"></div>
-            
           </div>
           <div class="row gap-8">
             <button id="copyAsciiBtn">Copy</button>
-            <button id="splitAsciiBtn">Split for Discord</button>
+            <!-- <button id="splitAsciiBtn">Split for Discord</button> -->
             <button id="sendAsciiBtn" class="primary">Send ASCII to webhook</button>
             <span class="muted" id="sendProgress"></span>
           </div>
         </div>
-        <textarea id="asciiOut" placeholder="(click Generate ASCII week table)"></textarea>
+        <textarea id="asciiOut" placeholder="(click Generate ASCII table)"></textarea>
         <div class="splitBox" id="splitBox" style="display:none;"></div>
       </div>
-
 
       <div class="section">
         <div class="row space-between align-end">
-          <div>
-            <div class="muted">Image week table</div>
-            <div class="muted" id="asciiLenInfo"></div>
-            
-          </div>
+          <div class="muted">Image table</div>
           <div class="row gap-8">
-            <!-- <button id="copyAsciiBtn">Copy</button>
-            <button id="splitAsciiBtn">Split for Discord</button> -->
             <button id="sendImageBtn" class="primary">Send to webhook</button>
-            <span class="muted" id="sendProgress"></span>
+            <span class="muted" id="sendImageProgress"></span>
           </div>
         </div>
-        <!-- <textarea id="asciiOut" placeholder="(click Generate ASCII week table)"></textarea> -->
+
         <canvas id="weekCanvas"></canvas>
-        <div class="splitBox" id="splitBox" style="display:none;"></div>
       </div>
-      
-       <!-- Footer with version bottom-right -->
-  <div class="footerRow">
-    <div class="muted">
-      
+
+      <div class="footerRow">
+        <div class="muted"></div>
+        <div class="muted mono" id="versionBadge">v1</div>
+      </div>
     </div>
-    <div class="muted mono" id="versionBadge">v1</div>
   </div>
-</div>
 
   <script src="app.js"></script>
 </body>
