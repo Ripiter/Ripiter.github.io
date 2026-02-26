@@ -176,6 +176,25 @@ button:disabled{ opacity:.55; cursor:not-allowed; }
   gap:10px;
 }
 
+#weekCanvas{
+  width: 100%;
+}
+
+input[type="color"]{
+  height: 42px;
+  padding: 6px;
+}
+
+.colorDot{
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  display:inline-block;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
 .warn{ color: #ffd38c; }
 .ok{ color: #b9ffca; }
 

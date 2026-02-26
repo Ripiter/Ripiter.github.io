@@ -244,6 +244,334 @@ function safeB64DecodeUTF8(b64) {
   const webhookStatus = document.getElementById("webhookStatus");
   const sendAsciiBtn = document.getElementById("sendAsciiBtn");
   const sendProgress = document.getElementById("sendProgress");
+  const colorEl = document.getElementById("color");
+
+  // ---------- Image rendering (Canvas) ----------
+const genImageBtn = document.getElementById("genImageBtn");
+const downloadImageBtn = document.getElementById("downloadImageBtn");
+const copyImageBtn = document.getElementById("copyImageBtn");
+const weekCanvas = document.getElementById("weekCanvas");
+
+let lastPngBlob = null;
+
+function wrapLines(ctx, text, maxWidth) {
+  const t = (text || "").toString().trim();
+  if (!t) return [];
+  const words = t.split(/\s+/);
+  const lines = [];
+  let cur = "";
+
+  for (const w of words) {
+    const candidate = cur ? (cur + " " + w) : w;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      cur = candidate;
+    } else {
+      if (cur) lines.push(cur);
+      // hard-break if single word too long
+      if (ctx.measureText(w).width <= maxWidth) {
+        cur = w;
+      } else {
+        let part = "";
+        for (const ch of w) {
+          const cand2 = part + ch;
+          if (ctx.measureText(cand2).width <= maxWidth) part = cand2;
+          else {
+            if (part) lines.push(part);
+            part = ch;
+          }
+        }
+        cur = part;
+      }
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+
+
+function getISOWeekStartFromWeekInput(weekValue) {
+  const m = /^(\d{4})-W(\d{2})$/.exec(weekValue);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const week = Number(m[2]);
+
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = (jan4.getDay() + 6) % 7; // Mon=0
+  const mondayWeek1 = new Date(jan4);
+  mondayWeek1.setDate(jan4.getDate() - jan4Day);
+
+  const monday = new Date(mondayWeek1);
+  monday.setDate(mondayWeek1.getDate() + (week - 1) * 7);
+  return monday;
+}
+
+function renderWeekToCanvas() {
+  // --- helpers local to this function (color background + rounded rect) ---
+  function hexToRgba(hex, a) {
+    const h = (hex || "").replace("#", "").trim();
+    const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+    if (!/^[0-9a-fA-F]{6}$/.test(full)) return `rgba(90,167,255,${a})`;
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  const obj = buildExportObject(); // { version, weekStart, events:[...] }
+
+  const ws = parseISODate(obj.weekStart);
+  if (!ws) {
+    alert("No week selected.");
+    return Promise.resolve(null);
+  }
+  const we = new Date(ws);
+  we.setDate(ws.getDate() + 6);
+
+  // Group events by day index Mon=0..Sun=6
+  const byDay = Array.from({ length: 7 }, () => []);
+  for (const ev of obj.events) {
+    const d = parseISODate(ev.date);
+    if (!d) continue;
+    const idx = (d.getDay() + 6) % 7;
+    byDay[idx].push(ev);
+  }
+  for (let i = 0; i < 7; i++) {
+    byDay[i].sort(
+      (a, b) =>
+        (a.startTime || "").localeCompare(b.startTime || "") ||
+        (a.name || "").localeCompare(b.name || "")
+    );
+  }
+
+  // Canvas metrics
+  const W = 1400;
+  const padding = 24;
+  const headerH = 70;
+  const colHeaderH = 46;
+  const gridTop = padding + headerH;
+  const colW = Math.floor((W - padding * 2) / 7);
+
+  const canvas = weekCanvas;
+  const ctx = canvas.getContext("2d");
+
+  // Typography
+  const timeFont = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  const nameFont = "16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  const descFont = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+
+  const cellInnerPad = 10;
+  const lineGap = 6;
+  const eventGap = 10;
+
+  // Pre-calc row heights by measuring wrapped text
+  function measureEventHeight(ev) {
+    const maxTextW = colW - cellInnerPad * 2;
+    let h = 0;
+
+    // time
+    ctx.font = timeFont;
+    h += 18;
+
+    // name
+    ctx.font = nameFont;
+    const nameLines = wrapLines(ctx, ev.name || "", maxTextW);
+    h += nameLines.length * 18;
+
+    // desc (optional)
+    const desc = (ev.description || "").trim();
+    if (desc) {
+      ctx.font = descFont;
+      const descLines = wrapLines(ctx, desc, maxTextW);
+      h += lineGap + descLines.length * 16;
+    }
+
+    h += eventGap; // bottom spacing after event
+    return h;
+  }
+
+  // Compute per-day required height
+  const dayHeights = byDay.map((dayEvents) => {
+    let h = 0;
+    for (const ev of dayEvents) h += measureEventHeight(ev);
+    return Math.max(h, 80);
+  });
+
+  const contentH = Math.max(...dayHeights);
+  const H = gridTop + colHeaderH + contentH + padding;
+
+  canvas.width = W;
+  canvas.height = H;
+
+  // Background
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+
+  // Header
+  ctx.fillStyle = "#111";
+  ctx.font = "28px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  ctx.fillText(`${fmtDDMM(ws)} - ${fmtDDMM(we)}`, padding, padding + 34);
+
+  ctx.fillStyle = "#555";
+  ctx.font = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  ctx.fillText(
+    `${obj.weekStart} … ${(() => {
+      const x = new Date(ws);
+      x.setDate(x.getDate() + 6);
+      return x.toISOString().slice(0, 10);
+    })()}`,
+    padding,
+    padding + 56
+  );
+
+  // Grid lines
+  const left = padding;
+  const top = gridTop;
+  const right = padding + colW * 7;
+  const bottom = top + colHeaderH + contentH;
+
+  ctx.strokeStyle = "#cfcfcf";
+  ctx.lineWidth = 1;
+
+  // Outer border
+  ctx.strokeRect(left, top, right - left, bottom - top);
+
+  // Vertical lines
+  for (let i = 1; i < 7; i++) {
+    const x = left + i * colW;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+  }
+
+  // Header separator line
+  ctx.beginPath();
+  ctx.moveTo(left, top + colHeaderH);
+  ctx.lineTo(right, top + colHeaderH);
+  ctx.stroke();
+
+  // Column headers
+  const dayNames = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"];
+  ctx.fillStyle = "#111";
+  ctx.font = "18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+
+  for (let i = 0; i < 7; i++) {
+    const x0 = left + i * colW;
+    const d = new Date(ws);
+    d.setDate(ws.getDate() + i);
+    const title = `${dayNames[i]}  ${fmtDDMM(d)}`;
+    ctx.fillText(title, x0 + 12, top + 30);
+  }
+
+  // Events
+  for (let i = 0; i < 7; i++) {
+    const x0 = left + i * colW;
+    let y = top + colHeaderH + 14;
+
+    for (const ev of byDay[i]) {
+      const maxTextW = colW - cellInnerPad * 2;
+
+      // Measure event height so we can paint a background "card"
+      const eventH = measureEventHeight(ev);
+
+      // Background (soft tint based on ev.color)
+      const bgX = x0 + 6;
+      const bgY = y - 16; // a bit above the time line
+      const bgW = colW - 12;
+      const bgH = Math.max(28, eventH - 6);
+
+      ctx.fillStyle = hexToRgba(ev.color || "#5aa7ff", 0.18);
+      roundRect(ctx, bgX, bgY, bgW, bgH, 10);
+      ctx.fill();
+
+      // time line
+      ctx.fillStyle = "#111";
+      ctx.font = timeFont;
+      const time = ev.endTime
+        ? `${ev.startTime}-${ev.endTime}`
+        : (ev.startTime || "");
+      ctx.fillText(time, x0 + cellInnerPad, y);
+      y += 22;
+
+      // name lines
+      ctx.fillStyle = "#111";
+      ctx.font = nameFont;
+      const nameLines = wrapLines(ctx, ev.name || "", maxTextW);
+      for (const line of nameLines) {
+        ctx.fillText(line, x0 + cellInnerPad, y);
+        y += 22;
+      }
+
+      // description (if exists)
+      const desc = (ev.description || "").trim();
+      if (desc) {
+        y += 4;
+        ctx.fillStyle = "#444";
+        ctx.font = descFont;
+        const descLines = wrapLines(ctx, desc, maxTextW);
+        for (const line of descLines) {
+          ctx.fillText(line, x0 + cellInnerPad, y);
+          y += 18;
+        }
+      }
+
+      y += eventGap;
+
+      // Stop drawing if it exceeds content area (rare)
+      if (y > bottom - 10) break;
+    }
+  }
+
+  canvas.style.display = "block";
+
+  // Create a blob for download/copy
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      lastPngBlob = blob;
+      resolve(blob);
+    }, "image/png");
+  });
+}
+
+async function downloadLastPng() {
+  if (!lastPngBlob) return;
+  const url = URL.createObjectURL(lastPngBlob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "week.png";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function copyLastPngToClipboard() {
+  if (!lastPngBlob) return;
+  if (!navigator.clipboard || !window.ClipboardItem) {
+    alert("Clipboard image copy not supported in this browser.");
+    return;
+  }
+  await navigator.clipboard.write([
+    new ClipboardItem({ "image/png": lastPngBlob })
+  ]);
+}
+
+// Wire buttons
+if (genImageBtn) genImageBtn.addEventListener("click", async () => { await renderWeekToCanvas(); });
+if (downloadImageBtn) downloadImageBtn.addEventListener("click", downloadLastPng);
+if (copyImageBtn) copyImageBtn.addEventListener("click", copyLastPngToClipboard);
 
   if (versionBadge) versionBadge.textContent = "v" + CURRENT_VERSION;
 
@@ -340,7 +668,10 @@ function safeB64DecodeUTF8(b64) {
       item.innerHTML = `
         <div class="eventTop">
           <div>
-            <div class="eventTitle">${escapeHTML(ev.name || "(no name)")}</div>
+             <div class="eventTitle">
+               <span class="colorDot" style="background:${escapeHTML(ev.color || "#ffffff")}"></span>
+               ${escapeHTML(ev.name || "(no name)")}
+             </div>
             <div class="eventMeta">${escapeHTML(metaLines.join("\n"))}</div>
           </div>
           <div class="row gap-8">
@@ -374,6 +705,7 @@ function safeB64DecodeUTF8(b64) {
 
     const nm = (nameEl.value || "").trim();
     const ds = (descEl.value || "").trim();
+    const col = (colorEl?.value || "").trim() || "#5aa7ff";
 
     if (!nm) { alert("Name is required."); return; }
 
@@ -383,7 +715,8 @@ function safeB64DecodeUTF8(b64) {
       startTime: st,
       endTime: et || "",
       name: nm,
-      desc: ds
+      desc: ds,
+      color: col
     });
 
     // reset inputs (keep date/week). Start time back to 00:00.
@@ -408,6 +741,7 @@ function normalizeImportedEvent(ev) {
   const endTime = (ev?.endTime || "").trim();
   const name = (ev?.name || "").toString().trim();
   const desc = (ev?.description || "").toString().trim();
+  const color = (ev?.color || "").toString().trim();
 
   if (!date || !parseISODate(date)) throw new Error("Invalid event date: " + date);
   if (!name) throw new Error("Event name is required.");
@@ -418,7 +752,8 @@ function normalizeImportedEvent(ev) {
     startTime,
     endTime,
     name,
-    desc
+    desc,
+    color: color || "#ffffff"
   };
 }
 
@@ -497,7 +832,8 @@ function importBase64Replace() {
         startTime: ev.startTime,
         endTime: ev.endTime || "",
         name: ev.name,
-        description: ev.desc || ""
+        description: ev.desc || "",
+        color: ev.color || ""
       }))
     };
   }
@@ -803,6 +1139,45 @@ async function postToRelay({ workerUrl, webhookUrl, content, signal }) {
     }
 }
 
+
+
+async function blobToBase64NoPrefix(blob) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+  // "data:image/png;base64,AAAA..."
+  return dataUrl.split(",")[1] || "";
+}
+
+async function sendImageToWorker({ workerUrl, pngBlob, caption }) {
+  // Optional guard: keep images reasonably small. Discord limits vary by context; staying well under ~8–10MB is safest.
+  // (Your week PNG will usually be far smaller.)
+  if (pngBlob.size > 8 * 1024 * 1024) {
+    throw new Error("Image is too large (>8MB). Reduce size or content.");
+  }
+
+  const dataBase64 = await blobToBase64NoPrefix(pngBlob);
+
+  const resp = await fetch(workerUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      webhookUrl : webhookInput.value,
+      type: "image",
+      filename: "week.png",
+      mime: "image/png",
+      dataBase64,
+      content: caption || ""
+    })
+  });
+
+  const txt = await resp.text().catch(() => "");
+  if (!resp.ok) throw new Error(`Worker error ${resp.status}: ${txt}`);
+}
+
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);
@@ -827,6 +1202,15 @@ function sleep(ms, signal) {
   saveWebhookBtn.addEventListener("click", saveWebhookFromUI);
   clearWebhookBtn.addEventListener("click", clearWebhook);
   sendAsciiBtn.addEventListener("click", sendAsciiToWebhook);
+
+  sendImageBtn.addEventListener("click", async () => {
+      const workerUrl = (workerInput.value || "").trim();
+      if (!workerUrl) { alert("Set Worker URL first."); return; }
+      if (!lastPngBlob) { alert("Generate image first."); return; }
+
+      await sendImageToWorker({ workerUrl, pngBlob: lastPngBlob, caption: "" });
+      setWebhookStatus("Image send");
+  });
 
   clearBtn.addEventListener("click", () => {
     if (!confirm("Clear all events for all weeks in memory?")) return;
@@ -888,6 +1272,5 @@ function sleep(ms, signal) {
   // ensure default start time is 00:00
   startTime.value = "00:00";
   loadWebhookIntoUI();
-  loadWorkerIntoUI();
   
 })();

@@ -59,9 +59,15 @@
           <label for="name">Name</label>
           <input id="name" type="text" placeholder="e.g. Trening" class="w-100" />
         </div>
+
         <div class="flex-1 minw-200">
           <label for="desc">Description</label>
           <input id="desc" type="text" placeholder="Extra info" class="w-100" />
+        </div>
+
+         <div class="flex-1 minw-160">
+            <label for="color">Color</label>
+            <input id="color" type="color" value="#ffffff" />
         </div>
       </div>
 
@@ -82,6 +88,9 @@
       <div class="row gap-10 mb-10">
         <button class="primary" id="genBase64Btn">Generate Export</button>
         <button class="primary" id="genAsciiBtn">Generate ASCII week table</button>
+        <button id="genImageBtn" class="primary">Generate image</button>
+        <button id="downloadImageBtn">Download PNG</button>
+        <button id="copyImageBtn">Copy image</button>
       </div>
 
         <!-- NEW: Import -->
@@ -111,19 +120,39 @@
           <div>
             <div class="muted">ASCII week table (wrapped in code fences for Discord)</div>
             <div class="muted" id="asciiLenInfo"></div>
+            
           </div>
           <div class="row gap-8">
             <button id="copyAsciiBtn">Copy</button>
             <button id="splitAsciiBtn">Split for Discord</button>
-            <button id="sendAsciiBtn" class="primary">Send to webhook</button>
+            <button id="sendAsciiBtn" class="primary">Send ASCII to webhook</button>
             <span class="muted" id="sendProgress"></span>
           </div>
         </div>
         <textarea id="asciiOut" placeholder="(click Generate ASCII week table)"></textarea>
-
         <div class="splitBox" id="splitBox" style="display:none;"></div>
       </div>
 
+
+      <div class="section">
+        <div class="row space-between align-end">
+          <div>
+            <div class="muted">Image week table</div>
+            <div class="muted" id="asciiLenInfo"></div>
+            
+          </div>
+          <div class="row gap-8">
+            <!-- <button id="copyAsciiBtn">Copy</button>
+            <button id="splitAsciiBtn">Split for Discord</button> -->
+            <button id="sendImageBtn" class="primary">Send to webhook</button>
+            <span class="muted" id="sendProgress"></span>
+          </div>
+        </div>
+        <!-- <textarea id="asciiOut" placeholder="(click Generate ASCII week table)"></textarea> -->
+        <canvas id="weekCanvas"></canvas>
+        <div class="splitBox" id="splitBox" style="display:none;"></div>
+      </div>
+      
        <!-- Footer with version bottom-right -->
   <div class="footerRow">
     <div class="muted">
