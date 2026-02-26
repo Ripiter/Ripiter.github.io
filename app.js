@@ -1082,6 +1082,45 @@ async function postToRelay({ workerUrl, webhookUrl, content, signal }) {
     }
 }
 
+
+
+async function blobToBase64NoPrefix(blob) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+  // "data:image/png;base64,AAAA..."
+  return dataUrl.split(",")[1] || "";
+}
+
+async function sendImageToWorker({ workerUrl, pngBlob, caption }) {
+  // Optional guard: keep images reasonably small. Discord limits vary by context; staying well under ~8–10MB is safest.
+  // (Your week PNG will usually be far smaller.)
+  if (pngBlob.size > 8 * 1024 * 1024) {
+    throw new Error("Image is too large (>8MB). Reduce size or content.");
+  }
+
+  const dataBase64 = await blobToBase64NoPrefix(pngBlob);
+
+  const resp = await fetch(workerUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      webhookUrl : webhookInput.value,
+      type: "image",
+      filename: "week.png",
+      mime: "image/png",
+      dataBase64,
+      content: caption || ""
+    })
+  });
+
+  const txt = await resp.text().catch(() => "");
+  if (!resp.ok) throw new Error(`Worker error ${resp.status}: ${txt}`);
+}
+
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);
@@ -1106,6 +1145,15 @@ function sleep(ms, signal) {
   saveWebhookBtn.addEventListener("click", saveWebhookFromUI);
   clearWebhookBtn.addEventListener("click", clearWebhook);
   sendAsciiBtn.addEventListener("click", sendAsciiToWebhook);
+
+  sendImageBtn.addEventListener("click", async () => {
+      const workerUrl = (workerInput.value || "").trim();
+      if (!workerUrl) { alert("Set Worker URL first."); return; }
+      if (!lastPngBlob) { alert("Generate image first."); return; }
+
+      await sendImageToWorker({ workerUrl, pngBlob: lastPngBlob, caption: "" });
+      setWebhookStatus("Image send");
+  });
 
   clearBtn.addEventListener("click", () => {
     if (!confirm("Clear all events for all weeks in memory?")) return;
