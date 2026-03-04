@@ -1049,6 +1049,10 @@ ${bottom}`;
 
     srcValue = srcValue.replace("```text\n", "").replace("```", "")
 
+    var _width = getCharWidthInTextarea('_', src);
+    var _count = countChar(srcValue, '_');
+    var _newWith = ((_width * (_count / 2)) + 50) +"px";
+
     pre.textContent = srcValue;                 // IMPORTANT: textarea uses .value
     
     pre.style.whiteSpace = "pre";                // keep ASCII alignment
@@ -1060,7 +1064,7 @@ ${bottom}`;
     pre.style.lineHeight = cs.lineHeight;
     pre.style.color = cs.color;
     pre.style.background = cs.backgroundColor;
-    pre.style.width = cs.width;                  // match textarea width
+    pre.style.width = _newWith;                  // match textarea width
     pre.style.boxSizing = cs.boxSizing;
 
     // Put it offscreen so it can layout properly
@@ -1087,6 +1091,39 @@ ${bottom}`;
     } finally {
       wrap.remove();
     }
+  }
+
+  function countChar(word, char) {
+    var count = 0
+    for (let i = 0; i <= word.length; i++) {
+      if (word[i] === `${char}`) {
+        count += 1
+      }
+    }
+    return count;
+  }
+
+  function getCharWidthInTextarea(char, textarea) {
+      //Create a temporary span element with the same font properties as the textarea
+      var span = document.createElement('span');
+      span.style.fontSize = window.getComputedStyle(textarea).fontSize;
+      span.style.fontFamily = window.getComputedStyle(textarea).fontFamily;
+      span.style.fontWeight = window.getComputedStyle(textarea).fontWeight;
+      span.style.visibility = 'hidden';
+      span.style.position = 'absolute';
+      span.textContent = char;
+
+      // Append the span element to the document body
+      document.body.appendChild(span);
+
+      // Get the width of the character using the offsetWidth property of the span 
+      var __width = span.offsetWidth;
+
+      // Remove the span element from the document body
+      document.body.removeChild(span);
+
+      // Return the width of the character
+      return __width;
   }
 
   async function sendAsciiToWebhook() {
