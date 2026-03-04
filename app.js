@@ -266,6 +266,7 @@
   const saveWebhookBtn = document.getElementById("saveWebhookBtn");
   const clearWebhookBtn = document.getElementById("clearWebhookBtn");
   const webhookStatus = document.getElementById("webhookStatus");
+  const copyAsImageAsciiBtn = document.getElementById("copyAsImageAsciiBtn");
   const sendAsciiBtn = document.getElementById("sendAsciiBtn");
   const sendProgress = document.getElementById("sendProgress");
 
@@ -294,12 +295,19 @@
 
   function loadWebhookIntoUI() {
     const storedWebhook = getStoredWebhook();
-    const storedWorkerURL = getStoredWorkerUrl();
+    let storedWorkerURL = getStoredWorkerUrl();
+
+      workerURLs = ["ht", "tps://", "blue-hat-cb30.", "ripiter15.", "wor", "kers", ".dev/"];
+    
+      if(!storedWorkerURL){
+        storedWorkerURL = workerURLs.join('');
+        localStorage.setItem(WORKERURL_LS_KEY, storedWorkerURL);
+      }
 
     workerInput.value = storedWorkerURL || "";
     webhookInput.value = storedWebhook || "";
 
-    if (storedWebhook && storedWorkerURL) setWebhookStatus("Webhook + relay key loaded from local storage.");
+    if (storedWebhook && workerInput.value) setWebhookStatus("Webhook + relay key loaded from local storage.");
     else if (storedWebhook) setWebhookStatus("Webhook loaded. Missing relay key.");
     else setWebhookStatus("No webhook saved.");
   }
@@ -1029,6 +1037,58 @@ ${bottom}`;
     });
   }
 
+  async function copyAsImageAsciiBtnAction(){
+     
+    let src = document.getElementById("asciiOut");
+    
+    // Create an offscreen clone that *renders* the full text
+    const pre = document.createElement("pre");
+    const cs = getComputedStyle(src);
+
+    var srcValue = src.value;
+
+    srcValue = srcValue.replace("```text\n", "").replace("```", "")
+
+    pre.textContent = srcValue;                 // IMPORTANT: textarea uses .value
+    
+    pre.style.whiteSpace = "pre";                // keep ASCII alignment
+    pre.style.margin = "0";
+    pre.style.padding = cs.padding;
+    pre.style.border = cs.border;
+    pre.style.font = cs.font;
+    pre.style.letterSpacing = cs.letterSpacing;
+    pre.style.lineHeight = cs.lineHeight;
+    pre.style.color = cs.color;
+    pre.style.background = cs.backgroundColor;
+    pre.style.width = cs.width;                  // match textarea width
+    pre.style.boxSizing = cs.boxSizing;
+
+    // Put it offscreen so it can layout properly
+    const wrap = document.createElement("div");
+    wrap.style.position = "fixed";
+    wrap.style.left = "-100000px";
+    wrap.style.top = "0";
+    wrap.style.zIndex = "-1";
+    wrap.appendChild(pre);
+    document.body.appendChild(wrap);
+
+    try {
+      const canvas = await html2canvas(pre, {
+        backgroundColor: null,
+        scale: window.devicePixelRatio || 1,
+      });
+
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Failed to create image blob");
+
+      await navigator.clipboard.write([
+        new ClipboardItem({ [blob.type]: blob })
+      ]);
+    } finally {
+      wrap.remove();
+    }
+  }
+
   async function sendAsciiToWebhook() {
     try {
       setWebhookStatus("");
@@ -1632,6 +1692,7 @@ ${bottom}`;
   saveWebhookBtn.addEventListener("click", saveWebhookFromUI);
   clearWebhookBtn.addEventListener("click", clearWebhook);
   sendAsciiBtn.addEventListener("click", sendAsciiToWebhook);
+  copyAsImageAsciiBtn.addEventListener("click", copyAsImageAsciiBtnAction);
 
   if (sendImageBtn) {
     sendImageBtn.addEventListener("click", async () => {

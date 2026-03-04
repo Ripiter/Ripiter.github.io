@@ -1,6 +1,9 @@
 <!doctype html>
 <html lang="en">
 <head>
+    <script src=
+"https://cdn.jsdelivr.net/npm/html2canvas@1.0.0-rc.5/dist/html2canvas.min.js">
+    </script>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Event Planner</title>
@@ -10,7 +13,7 @@
   <h1>Event Planner</h1>
 
   <div class="row gap-8" style="flex-wrap:nowrap;">
-    <input id="webhookInput" type="password" placeholder="Webhook URL" />
+    <input id="webhookInput" type="password" placeholder="Webhook URL"/>
     <input id="workerInput" type="password" placeholder="Relay Worker" />
     <button id="saveWebhookBtn" class="primary">Save</button>
     <button id="clearWebhookBtn" class="danger">Clear</button>
@@ -143,6 +146,7 @@
           <div class="row gap-8">
             <button id="copyAsciiBtn">Copy</button>
             <!-- <button id="splitAsciiBtn">Split for Discord</button> -->
+            <button id="copyAsImageAsciiBtn" class="primary">Copy as image</button>
             <button id="sendAsciiBtn" class="primary">Send ASCII to webhook</button>
             <span class="muted" id="sendProgress"></span>
           </div>
